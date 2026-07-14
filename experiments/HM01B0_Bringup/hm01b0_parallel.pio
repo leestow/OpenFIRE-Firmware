@@ -1,0 +1,41 @@
+.program hm01b0_parallel8
+; HM01B0 8-bit parallel capture.
+;
+; The state machine's IN base is D0.
+; Pins are expected to be consecutive:
+;   D0..D7 = IN_BASE + 0..7
+;   PCLK   = IN_BASE + 8
+;   LVLD   = IN_BASE + 9
+;
+; One FIFO byte is produced per camera pixel.
+
+.wrap_target
+    wait 1 pin 9       ; Wait until line-valid is asserted.
+    wait 1 pin 8       ; Sample on PCLK high.
+    in pins, 8         ; Read D0..D7 as one RAW8 pixel.
+    wait 0 pin 8       ; Wait for PCLK low before the next pixel.
+.wrap
+
+% c-sdk {
+static inline void hm01b0_parallel8_program_init(
+    PIO pio,
+    uint sm,
+    uint offset,
+    uint in_base
+) {
+    for (uint pin = in_base; pin < in_base + 10; ++pin) {
+        pio_gpio_init(pio, pin);
+    }
+
+    pio_sm_set_consecutive_pindirs(pio, sm, in_base, 10, false);
+
+    pio_sm_config c = hm01b0_parallel8_program_get_default_config(offset);
+    sm_config_set_in_pins(&c, in_base);
+
+    // Shift left and autopush every 8 bits, matching the byte-oriented DMA.
+    sm_config_set_in_shift(&c, false, true, 8);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
+
+    pio_sm_init(pio, sm, offset, &c);
+}
+%}
